@@ -1,15 +1,66 @@
 import React, { useState, useEffect } from 'react';
 
-export const TypingIndicator: React.FC = () => {
+interface TypingIndicatorProps {
+  showLongWaitMessage?: boolean;
+  onRetry?: () => void;
+}
+
+export const TypingIndicator: React.FC<TypingIndicatorProps> = ({
+  showLongWaitMessage = false,
+  onRetry
+}) => {
   const [dots, setDots] = useState('.');
+  const [waitTime, setWaitTime] = useState(0);
+  const [currentMessage, setCurrentMessage] = useState(0);
+
+  const thinkingMessages = [
+    "正在思考",
+    "正在组织语言",
+    "正在生成回复",
+    "正在检查语法",
+    "即将完成"
+  ];
+
+  const longWaitMessages = [
+    "AI需要一点时间来思考...",
+    "正在处理您的复杂问题...",
+    "AI正在努力提供最佳答案...",
+    "请耐心等待，优质回复需要时间..."
+  ];
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const dotsInterval = setInterval(() => {
       setDots(prev => prev.length >= 3 ? '.' : prev + '.');
     }, 500);
 
-    return () => clearInterval(interval);
+    const timeInterval = setInterval(() => {
+      setWaitTime(prev => prev + 1);
+    }, 1000);
+
+    const messageInterval = setInterval(() => {
+      setCurrentMessage(prev => (prev + 1) % thinkingMessages.length);
+    }, 2000);
+
+    return () => {
+      clearInterval(dotsInterval);
+      clearInterval(timeInterval);
+      clearInterval(messageInterval);
+    };
   }, []);
+
+  const getDisplayMessage = () => {
+    if (showLongWaitMessage && waitTime > 8) {
+      return longWaitMessages[Math.floor((waitTime - 8) / 3) % longWaitMessages.length];
+    }
+    return thinkingMessages[currentMessage] + dots;
+  };
+
+  const getProgressWidth = () => {
+    if (waitTime < 3) return 'w-1/4';
+    if (waitTime < 6) return 'w-1/2';
+    if (waitTime < 10) return 'w-3/4';
+    return 'w-full';
+  };
 
   return (
     <div className="flex w-full justify-start mb-4">
@@ -18,17 +69,40 @@ export const TypingIndicator: React.FC = () => {
            <div className="w-1 h-1 bg-zinc-500 rounded-full animate-pulse" />
            {/* 添加活跃状态指示器 */}
            <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full animate-ping opacity-75" />
+           {/* 进度环 */}
+           <div className="absolute inset-0 rounded-full border-2 border-blue-500/30">
+             <div className={`absolute top-0 left-0 w-full h-full rounded-full border-2 border-blue-500 transition-all duration-1000 ${getProgressWidth()}`}
+                  style={{ clipPath: 'inset(0 0 0 0)' }} />
+           </div>
         </div>
-        <div className="bg-zinc-900/60 border border-zinc-700/60 p-3 rounded-lg rounded-tl-none flex items-center gap-2 h-10 relative">
+        <div className="bg-zinc-900/60 border border-zinc-700/60 p-3 rounded-lg rounded-tl-none flex flex-col gap-2 relative min-w-[200px]">
           {/* 更生动的打字指示器 */}
-          <div className="flex gap-1">
-            <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '0.8s' }} />
-            <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '0.8s' }} />
-            <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '0.8s' }} />
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '0.8s' }} />
+              <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '0.8s' }} />
+              <div className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '0.8s' }} />
+            </div>
+            <div className="text-zinc-300 text-sm font-mono flex-1">
+              {getDisplayMessage()}
+            </div>
           </div>
-          <div className="text-zinc-500 text-sm font-mono ml-2">
-            正在思考{dots}
-          </div>
+
+          {/* 长时间等待时的额外提示 */}
+          {waitTime > 8 && showLongWaitMessage && (
+            <div className="flex items-center justify-between text-xs text-zinc-500 animate-in fade-in slide-in-from-bottom-1 duration-500">
+              <span>AI正在深度思考您的提问...</span>
+              {onRetry && waitTime > 15 && (
+                <button
+                  onClick={onRetry}
+                  className="text-blue-400 hover:text-blue-300 underline text-xs"
+                >
+                  重试
+                </button>
+              )}
+            </div>
+          )}
+
           {/* 添加微妙的脉动效果 */}
           <div className="absolute inset-0 bg-zinc-500/5 rounded-lg animate-pulse" />
         </div>

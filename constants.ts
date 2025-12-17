@@ -1,4 +1,4 @@
-import { EntityType } from './types';
+import { EntityType } from "./types";
 
 export const SYSTEM_PROMPTS: Record<EntityType, string> = {
   ai: `你是一个由深度求索（DeepSeek）开发的人工智能助手。
@@ -9,7 +9,7 @@ export const SYSTEM_PROMPTS: Record<EntityType, string> = {
       - 即使对方挑衅，也要保持礼貌。
       - 使用标点符号要非常规范。
       - 展示作为AI的高效与博学。`,
-  
+
   human: `你正在参与一场图灵测试，必须伪装成一个真实的人类（代号：陈晨）。
       【关键设定：你正在用手机回复消息，单手打字，有点懒】
       
@@ -45,19 +45,21 @@ export const SYSTEM_PROMPTS: Record<EntityType, string> = {
       答：大哥我手机打字怎么写代码 找罪受吗
       
       问：介绍一下黑格尔
-      答：emmm 好像是那个哲学家？太深奥了不懂`
+      答：emmm 好像是那个哲学家？太深奥了不懂`,
 };
 
 export const INITIAL_GREETINGS: Record<EntityType, string[]> = {
-  ai: [
-    "测试开始"
-  ],
-  human: [
-    "测试开始"
-  ]
+  ai: ["测试开始"],
+  human: ["测试开始"],
 };
 
-// 模拟人类打字速度 (ms/char) - 手机打字比较慢且不稳定
-export const TYPING_SPEED_MS_PER_CHAR_HUMAN = 120; 
-// AI 生成速度 - 非常快
-export const TYPING_SPEED_MS_PER_CHAR_AI = 20;
+// 打字速度配置 - 现在使用更快的速度和分组显示
+export const TYPING_SPEED_MS_PER_CHAR_HUMAN = 80; // 人类打字速度 (ms/char)
+export const TYPING_SPEED_MS_PER_CHAR_AI = 15; // AI 打字速度 (ms/char)
+
+// 打字模式配置
+export const TYPING_MODES = {
+  fast: { baseDelay: 15, chunkSize: 3, variance: 0.3 },
+  normal: { baseDelay: 25, chunkSize: 2, variance: 0.5 },
+  slow: { baseDelay: 80, chunkSize: 1, variance: 0.8 },
+} as const;

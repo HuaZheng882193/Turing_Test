@@ -39,10 +39,16 @@ const App: React.FC = () => {
     entityType: EntityType;
     id: string;
   } | null>(null);
+  const [typingSpeedMode, setTypingSpeedMode] = useState<
+    "fast" | "normal" | "slow"
+  >("normal");
+  const [longWaitDetected, setLongWaitDetected] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const phaseRef = useRef(phase);
+  const timeoutRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -87,12 +93,19 @@ const App: React.FC = () => {
   };
 
   const resetGame = () => {
+    // Clear any pending timeouts
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
     setPhase("idle");
     setMessages([]);
     setInputValue("");
     setEntityType(null);
     setIsTyping(false);
     setTypingMessage(null);
+    setLongWaitDetected(false);
+    setRetryCount(0);
     setStats({
       totalGames: 0,
       correctGuesses: 0,
@@ -111,14 +124,16 @@ const App: React.FC = () => {
     const messageId = Date.now().toString();
 
     // Calculate typing speed with natural variation
-    const baseSpeed = type === "human"
-      ? TYPING_SPEED_MS_PER_CHAR_HUMAN
-      : TYPING_SPEED_MS_PER_CHAR_AI;
+    const baseSpeed =
+      type === "human"
+        ? TYPING_SPEED_MS_PER_CHAR_HUMAN
+        : TYPING_SPEED_MS_PER_CHAR_AI;
 
     // Add natural typing variation
-    const variance = type === "human"
-      ? Math.random() * 0.6 + 0.4  // Human typing: 40-100% of base speed
-      : Math.random() * 0.3 + 0.85; // AI typing: 85-115% of base speed
+    const variance =
+      type === "human"
+        ? Math.random() * 0.6 + 0.4 // Human typing: 40-100% of base speed
+        : Math.random() * 0.3 + 0.85; // AI typing: 85-115% of base speed
 
     const typingSpeed = Math.max(baseSpeed * variance, 10);
 
@@ -126,7 +141,7 @@ const App: React.FC = () => {
     setTypingMessage({
       text,
       entityType: type,
-      id: messageId
+      id: messageId,
     });
   };
 
@@ -144,10 +159,12 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || phase !== "chatting" || isTyping || typingMessage) return;
+    if (!inputValue.trim() || phase !== "chatting" || isTyping || typingMessage)
+      return;
 
     const userText = inputValue.trim();
     setInputValue("");
+    setRetryCount(0);
 
     // Add user message immediately
     const userMsg: Message = {
@@ -160,27 +177,106 @@ const App: React.FC = () => {
 
     // Show thinking indicator while processing
     setIsTyping(true);
+    setLongWaitDetected(false);
 
-    try {
-      // Get AI response
-      const responseText = await geminiService.sendMessage(userText);
+    // Set timeout for long wait detection
+    timeoutRef.current = setTimeout(() => {
+      setLongWaitDetected(true);
+    }, 8000); // 8 seconds
 
-      if (phaseRef.current !== "chatting") return;
+    const attemptRequest = async (attemptNumber: number = 1): Promise<void> => {
+      try {
+        // Get AI response with timeout
+        const responsePromise = geminiService.sendMessage(userText);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("TIMEOUT")), 30000); // 30 second timeout
+        });
 
-      setIsTyping(false); // Hide thinking indicator
-      if (entityType) {
-        simulateIncomingMessage(responseText, entityType); // Start typewriter effect
+        const responseText = await Promise.race([
+          responsePromise,
+          timeoutPromise,
+        ]);
+
+        if (phaseRef.current !== "chatting") return;
+
+        // Clear timeout and reset states
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        setIsTyping(false);
+        setLongWaitDetected(false);
+
+        if (entityType) {
+          simulateIncomingMessage(responseText, entityType); // Start typewriter effect
+        }
+      } catch (e) {
+        console.error(`Attempt ${attemptNumber} failed:`, e);
+
+        // Clear timeout
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+
+        setIsTyping(false);
+        setLongWaitDetected(false);
+
+        // Handle different error types
+        if (e.message === "TIMEOUT" && attemptNumber < 2) {
+          // Auto retry once for timeout
+          setRetryCount(attemptNumber);
+          const retryMsg: Message = {
+            id: Date.now().toString(),
+            role: "model",
+            text: "回复超时，正在重试...",
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, retryMsg]);
+
+          setTimeout(() => {
+            // Remove the retry message and try again
+            setMessages((prev) => prev.filter((msg) => msg.id !== retryMsg.id));
+            setIsTyping(true);
+            attemptRequest(attemptNumber + 1);
+          }, 2000);
+          return;
+        }
+
+        // Final error message
+        let errorText = "系统错误：连接中断。";
+        if (e.message === "TIMEOUT") {
+          errorText = "网络超时，请检查网络连接后重试。";
+        } else if (
+          e.message?.includes("network") ||
+          e.message?.includes("fetch")
+        ) {
+          errorText = "网络连接错误，请检查网络后重试。";
+        } else if (retryCount > 0) {
+          errorText = `多次尝试失败，请稍后重试或联系技术支持。`;
+        }
+
+        const errorMsg: Message = {
+          id: Date.now().toString(),
+          role: "model",
+          text: errorText,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
       }
-    } catch (e) {
-      console.error(e);
-      setIsTyping(false);
-      const errorMsg: Message = {
-        id: Date.now().toString(),
-        role: "model",
-        text: "系统错误：连接中断。",
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+    };
+
+    attemptRequest();
+  };
+
+  const handleRetry = () => {
+    if (!inputValue.trim() && messages.length > 0) {
+      // Retry the last user message
+      const lastUserMessage = [...messages]
+        .reverse()
+        .find((msg) => msg.role === "user");
+      if (lastUserMessage) {
+        setInputValue(lastUserMessage.text);
+        handleSendMessage();
+      }
     }
   };
 
@@ -281,20 +377,41 @@ const App: React.FC = () => {
             )}
 
             {phase === "connecting" && (
-              <div className="h-full flex flex-col items-center justify-center space-y-4">
-                <div className="font-mono text-emerald-500 text-lg">
-                  正在搜索匹配对象...
-                </div>
-                <div className="w-64 h-2 bg-emerald-900/30 rounded-full overflow-hidden">
+              <div className="h-full flex flex-col items-center justify-center space-y-6">
+                <div className="relative">
+                  <div className="w-16 h-16 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                   <div
-                    className="h-full bg-emerald-500 animate-[loading_2s_ease-in-out_infinite]"
-                    style={{ width: "30%" }}
+                    className="absolute inset-0 w-16 h-16 border-4 border-cyan-500/20 border-b-cyan-500 rounded-full animate-spin"
+                    style={{
+                      animationDirection: "reverse",
+                      animationDuration: "1.5s",
+                    }}
                   ></div>
                 </div>
-                <div className="text-xs text-emerald-700 font-mono">
-                  <p>正在加密频道...</p>
-                  <p>正在隐藏IP地址...</p>
-                  <p>同步神经握手...</p>
+                <div className="text-center space-y-3">
+                  <div className="font-mono text-emerald-400 text-lg animate-pulse">
+                    正在搜索匹配对象...
+                  </div>
+                  <div className="w-64 h-2 bg-emerald-900/30 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 animate-[loading_2s_ease-in-out_infinite]"
+                      style={{ width: "60%" }}
+                    ></div>
+                  </div>
+                  <div className="text-sm text-emerald-600 font-mono space-y-1 animate-in fade-in duration-1000 delay-1000">
+                    <p className="animate-in slide-in-from-left duration-500 delay-1500">
+                      🔐 正在加密频道...
+                    </p>
+                    <p className="animate-in slide-in-from-left duration-500 delay-2000">
+                      🌐 正在隐藏IP地址...
+                    </p>
+                    <p className="animate-in slide-in-from-left duration-500 delay-2500">
+                      🧠 同步神经握手...
+                    </p>
+                  </div>
+                  <div className="text-xs text-zinc-500 font-mono animate-in fade-in duration-1000 delay-3000">
+                    请稍候，这可能需要几秒钟时间
+                  </div>
                 </div>
               </div>
             )}
@@ -311,14 +428,15 @@ const App: React.FC = () => {
                     text={typingMessage.text}
                     entityType={typingMessage.entityType}
                     onComplete={handleTypewriterComplete}
-                    typingSpeed={
-                      typingMessage.entityType === "human"
-                        ? TYPING_SPEED_MS_PER_CHAR_HUMAN
-                        : TYPING_SPEED_MS_PER_CHAR_AI
-                    }
+                    speedMode={typingSpeedMode}
                   />
                 )}
-                {isTyping && !typingMessage && <TypingIndicator />}
+                {isTyping && !typingMessage && (
+                  <TypingIndicator
+                    showLongWaitMessage={longWaitDetected}
+                    onRetry={handleRetry}
+                  />
+                )}
                 <div ref={messagesEndRef} />
               </>
             )}
@@ -402,22 +520,67 @@ const App: React.FC = () => {
                 placeholder={
                   phase === "chatting" ? "输入消息..." : "系统空闲..."
                 }
-                disabled={phase !== "chatting" || isTyping}
+                disabled={phase !== "chatting" || isTyping || typingMessage}
                 className="flex-1 bg-transparent border-b border-zinc-800 focus:border-emerald-500 text-emerald-100 placeholder-zinc-700 p-2 outline-none font-mono transition-colors disabled:opacity-50"
                 autoComplete="off"
               />
               <button
                 onClick={handleSendMessage}
                 disabled={
-                  !inputValue.trim() || phase !== "chatting" || isTyping
+                  !inputValue.trim() ||
+                  phase !== "chatting" ||
+                  isTyping ||
+                  typingMessage
                 }
                 className="p-2 text-zinc-500 hover:text-emerald-500 disabled:opacity-30 disabled:hover:text-zinc-500 transition-colors"
               >
                 <Send size={20} />
               </button>
+              <button
+                onClick={() => {
+                  const modes: Array<"fast" | "normal" | "slow"> = [
+                    "fast",
+                    "normal",
+                    "slow",
+                  ];
+                  const currentIndex = modes.indexOf(typingSpeedMode);
+                  const nextIndex = (currentIndex + 1) % modes.length;
+                  setTypingSpeedMode(modes[nextIndex]);
+                }}
+                className="p-2 text-zinc-500 hover:text-emerald-500 transition-colors"
+                title={`当前速度: ${
+                  typingSpeedMode === "fast"
+                    ? "快速"
+                    : typingSpeedMode === "normal"
+                    ? "正常"
+                    : "慢速"
+                }`}
+              >
+                <div className="w-5 h-5 relative">
+                  <div className="absolute inset-0 border border-current rounded-sm">
+                    <div
+                      className={`h-full bg-current transition-all duration-300 ${
+                        typingSpeedMode === "fast"
+                          ? "w-full"
+                          : typingSpeedMode === "normal"
+                          ? "w-2/3"
+                          : "w-1/3"
+                      }`}
+                    />
+                  </div>
+                </div>
+              </button>
             </div>
             <div className="max-w-4xl mx-auto mt-2 text-[10px] text-zinc-700 flex justify-between">
               <span>安全线路已加密</span>
+              <span className="text-emerald-500">
+                打字速度:{" "}
+                {typingSpeedMode === "fast"
+                  ? "快速"
+                  : typingSpeedMode === "normal"
+                  ? "正常"
+                  : "慢速"}
+              </span>
               <span>{messages.length} 次传输</span>
             </div>
           </div>
