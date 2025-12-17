@@ -21,16 +21,38 @@ class GeminiService {
         throw new Error("API Key not initialized");
     }
 
-    // Randomize temperature slightly for variety
-    const temperature = entityType === 'human' ? 1.2 : 0.7;
+    let temperature: number;
+    let topP: number;
+    let topK: number;
+
+    // Introduce randomization to generation parameters to prevent stale responses
+    if (entityType === 'human') {
+        // Human: High chaos, high variability.
+        // Temperature: 1.0 to 1.6 for more "creative" or unexpected outputs.
+        temperature = 1.0 + (Math.random() * 0.6);
+        
+        // TopP: 0.95 to 0.99 to include more of the probability tail.
+        topP = 0.95 + (Math.random() * 0.04);
+        
+        // TopK: 40 to 80 to allow for a wider vocabulary selection (slang, typos).
+        topK = 40 + Math.floor(Math.random() * 41);
+    } else {
+        // AI: Lower chaos, but not completely deterministic.
+        // Temperature: 0.6 to 0.9.
+        temperature = 0.6 + (Math.random() * 0.3);
+        
+        // Standard settings for coherent AI responses.
+        topP = 0.95;
+        topK = 40;
+    }
 
     this.chat = this.client.chats.create({
       model: 'gemini-2.5-flash',
       config: {
         systemInstruction: SYSTEM_PROMPTS[entityType],
         temperature: temperature,
-        topP: 0.95,
-        topK: 40,
+        topP: topP,
+        topK: topK,
         safetySettings: [
           { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
           { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },

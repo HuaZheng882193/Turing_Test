@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Power, CheckCircle, XCircle, HelpCircle, Terminal } from 'lucide-react';
+import { Send, Power, CheckCircle, XCircle, HelpCircle, Terminal, RotateCcw } from 'lucide-react';
 import { ChatBubble } from './components/ChatBubble';
 import { TypingIndicator } from './components/TypingIndicator';
 import { StatsPanel } from './components/StatsPanel';
@@ -24,6 +24,12 @@ const App: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Use a ref to track phase for async callbacks
+  const phaseRef = useRef(phase);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
 
   // Scroll to bottom effect
   useEffect(() => {
@@ -65,7 +71,25 @@ const App: React.FC = () => {
     }, 2000);
   };
 
+  const resetGame = () => {
+    setPhase('idle');
+    setMessages([]);
+    setInputValue('');
+    setEntityType(null);
+    setIsTyping(false);
+    setStats({
+      totalGames: 0,
+      correctGuesses: 0,
+      aiEncounters: 0,
+      humanEncounters: 0
+    });
+    setRevealMessage('');
+  };
+
   const simulateIncomingMessage = (text: string, type: EntityType) => {
+    // Safety check: don't simulate messages if we reset to idle
+    if (phaseRef.current === 'idle') return;
+
     setIsTyping(true);
     
     // Calculate delay based on length and simulated typing speed
@@ -75,6 +99,12 @@ const App: React.FC = () => {
     const delay = Math.min(Math.max(text.length * speed, 1000), 5000); // Clamp between 1s and 5s
 
     setTimeout(() => {
+      // Check phase again inside timeout
+      if (phaseRef.current === 'idle') {
+        setIsTyping(false);
+        return;
+      }
+
       setIsTyping(false);
       const newMessage: Message = {
         id: Date.now().toString(),
@@ -105,6 +135,13 @@ const App: React.FC = () => {
     try {
       // Get AI response
       const responseText = await geminiService.sendMessage(userText);
+      
+      // Check if game was reset while waiting
+      if (phaseRef.current !== 'chatting') {
+        setIsTyping(false);
+        return;
+      }
+
       // Process response with simulated typing delay
       if (entityType) {
         setIsTyping(false); // Reset first so simulateIncomingMessage can restart the cycle correctly
@@ -176,6 +213,15 @@ const App: React.FC = () => {
            {phase === 'voting' && (
              <span className="text-amber-500 animate-pulse font-bold">等待裁决...</span>
            )}
+           
+           <button 
+             onClick={resetGame}
+             className="flex items-center gap-2 px-3 py-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-emerald-900/20 rounded transition-all text-sm border border-zinc-800 hover:border-emerald-500/30"
+             title="重置系统"
+           >
+             <RotateCcw size={16} />
+             <span className="hidden sm:inline">重置游戏</span>
+           </button>
         </div>
       </header>
 
