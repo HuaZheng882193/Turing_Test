@@ -1,0 +1,5 @@
+{
+  "name": "图灵测试模拟协议",
+  "description": "一个高保真图灵测试模拟。审问对面的实体并确定：它是人类，还是机器？",
+  "requestFramePermissions": []
+}
