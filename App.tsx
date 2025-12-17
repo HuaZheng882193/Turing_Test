@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ChatBubble } from "./components/ChatBubble";
 import { TypingIndicator } from "./components/TypingIndicator";
+import { TypewriterMessage } from "./components/TypewriterMessage";
 import { StatsPanel } from "./components/StatsPanel";
 import { geminiService } from "./services/geminiService";
 import { GamePhase, EntityType, Message, GameStats } from "./types";
@@ -33,6 +34,11 @@ const App: React.FC = () => {
     humanEncounters: 0,
   });
   const [revealMessage, setRevealMessage] = useState<string>("");
+  const [typingMessage, setTypingMessage] = useState<{
+    text: string;
+    entityType: EntityType;
+    id: string;
+  } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +92,7 @@ const App: React.FC = () => {
     setInputValue("");
     setEntityType(null);
     setIsTyping(false);
+    setTypingMessage(null);
     setStats({
       totalGames: 0,
       correctGuesses: 0,
@@ -96,46 +103,48 @@ const App: React.FC = () => {
   };
 
   /**
-   * Message simulation - Simplified to remove "Reading" delay
-   * Now starts typing immediately but keeps duration proportional to text length
+   * Message simulation with smooth typewriter effect
    */
   const simulateIncomingMessage = (text: string, type: EntityType) => {
     if (phaseRef.current === "idle") return;
 
-    // Calculate Typing Duration
-    const baseSpeed =
-      type === "human"
-        ? TYPING_SPEED_MS_PER_CHAR_HUMAN
-        : TYPING_SPEED_MS_PER_CHAR_AI;
-    // Human typing is inconsistent
-    const variance = type === "human" ? Math.random() * 0.5 + 0.5 : 1;
-    let typingDuration = Math.max(text.length * baseSpeed * variance, 500);
+    const messageId = Date.now().toString();
 
-    // Cap typing duration
-    typingDuration = Math.min(typingDuration, 4000);
+    // Calculate typing speed with natural variation
+    const baseSpeed = type === "human"
+      ? TYPING_SPEED_MS_PER_CHAR_HUMAN
+      : TYPING_SPEED_MS_PER_CHAR_AI;
 
-    // Start Typing Immediately
-    setIsTyping(true);
+    // Add natural typing variation
+    const variance = type === "human"
+      ? Math.random() * 0.6 + 0.4  // Human typing: 40-100% of base speed
+      : Math.random() * 0.3 + 0.85; // AI typing: 85-115% of base speed
 
-    setTimeout(() => {
-      if (phaseRef.current !== "chatting") {
-        setIsTyping(false);
-        return;
-      }
+    const typingSpeed = Math.max(baseSpeed * variance, 10);
 
-      setIsTyping(false);
+    // Start the typewriter effect
+    setTypingMessage({
+      text,
+      entityType: type,
+      id: messageId
+    });
+  };
+
+  const handleTypewriterComplete = () => {
+    if (typingMessage) {
       const newMessage: Message = {
-        id: Date.now().toString(),
+        id: typingMessage.id,
         role: "model",
-        text: text,
+        text: typingMessage.text,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, newMessage]);
-    }, typingDuration);
+      setTypingMessage(null);
+    }
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || phase !== "chatting" || isTyping) return;
+    if (!inputValue.trim() || phase !== "chatting" || isTyping || typingMessage) return;
 
     const userText = inputValue.trim();
     setInputValue("");
@@ -149,9 +158,8 @@ const App: React.FC = () => {
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Set typing to true immediately to indicate processing, though the backend call might take a moment.
-    // However, usually we wait for backend response before showing the "typing" of the answer.
-    // In this specific app flow, we wait for the text to be ready, then simulate the "typing it out".
+    // Show thinking indicator while processing
+    setIsTyping(true);
 
     try {
       // Get AI response
@@ -159,11 +167,13 @@ const App: React.FC = () => {
 
       if (phaseRef.current !== "chatting") return;
 
+      setIsTyping(false); // Hide thinking indicator
       if (entityType) {
-        simulateIncomingMessage(responseText, entityType);
+        simulateIncomingMessage(responseText, entityType); // Start typewriter effect
       }
     } catch (e) {
       console.error(e);
+      setIsTyping(false);
       const errorMsg: Message = {
         id: Date.now().toString(),
         role: "model",
@@ -296,7 +306,19 @@ const App: React.FC = () => {
                 {messages.map((msg) => (
                   <ChatBubble key={msg.id} message={msg} />
                 ))}
-                {isTyping && <TypingIndicator />}
+                {typingMessage && (
+                  <TypewriterMessage
+                    text={typingMessage.text}
+                    entityType={typingMessage.entityType}
+                    onComplete={handleTypewriterComplete}
+                    typingSpeed={
+                      typingMessage.entityType === "human"
+                        ? TYPING_SPEED_MS_PER_CHAR_HUMAN
+                        : TYPING_SPEED_MS_PER_CHAR_AI
+                    }
+                  />
+                )}
+                {isTyping && !typingMessage && <TypingIndicator />}
                 <div ref={messagesEndRef} />
               </>
             )}
