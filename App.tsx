@@ -24,7 +24,6 @@ const App: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Use a ref to track phase for async callbacks
   const phaseRef = useRef(phase);
 
   useEffect(() => {
@@ -50,7 +49,6 @@ const App: React.FC = () => {
     
     // Simulate connection delay
     setTimeout(() => {
-      // Randomly select entity type
       const type: EntityType = Math.random() > 0.5 ? 'human' : 'ai';
       setEntityType(type);
       
@@ -58,12 +56,10 @@ const App: React.FC = () => {
         geminiService.initializeChat(type);
         setPhase('chatting');
         
-        // Initial greeting
         const greetings = INITIAL_GREETINGS[type];
         const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
         
-        // Add artificial delay for greeting
-        simulateIncomingMessage(randomGreeting, type);
+        simulateIncomingMessage(randomGreeting, type); 
       } catch (error) {
         console.error("Failed to start game", error);
         setPhase('idle');
@@ -86,34 +82,41 @@ const App: React.FC = () => {
     setRevealMessage('');
   };
 
+  /**
+   * Message simulation - Simplified to remove "Reading" delay
+   * Now starts typing immediately but keeps duration proportional to text length
+   */
   const simulateIncomingMessage = (text: string, type: EntityType) => {
-    // Safety check: don't simulate messages if we reset to idle
     if (phaseRef.current === 'idle') return;
 
-    setIsTyping(true);
-    
-    // Calculate delay based on length and simulated typing speed
+    // Calculate Typing Duration
     const baseSpeed = type === 'human' ? TYPING_SPEED_MS_PER_CHAR_HUMAN : TYPING_SPEED_MS_PER_CHAR_AI;
-    // Add randomness to speed
-    const speed = baseSpeed + (Math.random() * 20 - 10); 
-    const delay = Math.min(Math.max(text.length * speed, 1000), 5000); // Clamp between 1s and 5s
+    // Human typing is inconsistent
+    const variance = type === 'human' ? (Math.random() * 0.5 + 0.5) : 1; 
+    let typingDuration = Math.max(text.length * baseSpeed * variance, 500);
+    
+    // Cap typing duration
+    typingDuration = Math.min(typingDuration, 4000);
+
+    // Start Typing Immediately
+    setIsTyping(true);
 
     setTimeout(() => {
-      // Check phase again inside timeout
-      if (phaseRef.current === 'idle') {
-        setIsTyping(false);
-        return;
-      }
+         if (phaseRef.current !== 'chatting') {
+             setIsTyping(false);
+             return;
+         }
 
-      setIsTyping(false);
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        role: 'model',
-        text: text,
-        timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, newMessage]);
-    }, delay);
+         setIsTyping(false);
+         const newMessage: Message = {
+            id: Date.now().toString(),
+            role: 'model',
+            text: text,
+            timestamp: Date.now()
+         };
+         setMessages(prev => [...prev, newMessage]);
+
+    }, typingDuration);
   };
 
   const handleSendMessage = async () => {
@@ -130,27 +133,22 @@ const App: React.FC = () => {
       timestamp: Date.now()
     };
     setMessages(prev => [...prev, userMsg]);
-    setIsTyping(true); // Show typing indicator immediately while we wait for API
+    
+    // Set typing to true immediately to indicate processing, though the backend call might take a moment.
+    // However, usually we wait for backend response before showing the "typing" of the answer.
+    // In this specific app flow, we wait for the text to be ready, then simulate the "typing it out".
 
     try {
       // Get AI response
       const responseText = await geminiService.sendMessage(userText);
       
-      // Check if game was reset while waiting
-      if (phaseRef.current !== 'chatting') {
-        setIsTyping(false);
-        return;
-      }
+      if (phaseRef.current !== 'chatting') return;
 
-      // Process response with simulated typing delay
       if (entityType) {
-        setIsTyping(false); // Reset first so simulateIncomingMessage can restart the cycle correctly
         simulateIncomingMessage(responseText, entityType);
       }
     } catch (e) {
-      setIsTyping(false);
       console.error(e);
-      // Fallback message so user knows something went wrong
       const errorMsg: Message = {
         id: Date.now().toString(),
         role: 'model',
@@ -162,7 +160,6 @@ const App: React.FC = () => {
   };
 
   const handleVote = (vote: EntityType) => {
-    // FIX: Check for 'voting' phase, not 'chatting', because phase is switched to 'voting' before this call
     if (phase !== 'voting' || !entityType) return;
     
     setPhase('reveal');
@@ -198,7 +195,7 @@ const App: React.FC = () => {
           <Terminal className="text-emerald-500 animate-pulse" />
           <div>
             <h1 className="text-xl font-bold tracking-widest text-emerald-400 glow-text">图灵测试协议</h1>
-            <p className="text-[10px] text-emerald-700">V.2.5.0 // 安全连接</p>
+            <p className="text-[10px] text-emerald-700">V.2.5.0 // DeepSeek 核心已加载</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
