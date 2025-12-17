@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   // GitHub Pages 部署时使用仓库名称作为 base path
   // 如果是部署到 username.github.io，则设置为 '/'
   // 如果是部署到 username.github.io/repo-name，则设置为 '/repo-name/'
-  const base = env.GITHUB_PAGES ? "/Turing_Test/" : "/";
+  const base = "/Turing_Test/";
 
   return {
     base,
